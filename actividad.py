@@ -1,0 +1,3 @@
+# Comparativa entre mediapipe y landmarks, fisher lbph eyeface, datos de entrada, datos de salida...
+# Landmarks de rostro analizarlos
+# analizando las emociones

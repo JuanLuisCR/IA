@@ -1,0 +1,12 @@
+La generación de la malla facial se basa en puntos específicos para encontrar la cara y modelarla.
+
+Puntos clave para encontrar la emoción:
+- Los puntos de las cejas interior y exterior.
+- Las comisuras de los labios y los puntos centrales del labio inferior y superior
+    indican muchas emociones relevantes, como el enojo, la felicidad, la trizteza, sorpresa, etc.
+En base a estos landmarks se puede detectar todas las emociones, si los landmark de las cejas están más arriba significa sorpresa,
+si están hacia abajo incluyendo que las comisuras de los labios están hacia abajo, entonces significa enojo. 
+Todo esto se podría detectar en base a las coordenadas iniciales y las actuales determinando la emoción.
+
+Otro landmark clave pero no 100% relevante son los puntos de las mejillas, las expresiones faciles se basan en mover la mandíbula,
+y por consecuente, la posición de la mejilla cambia.
