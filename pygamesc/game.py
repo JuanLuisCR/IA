@@ -1,168 +1,138 @@
 import pygame
 import random
+import pandas as pd
+from joblib import load
+from sklearn.tree import DecisionTreeClassifier
 
-# Inicializar Pygame
 pygame.init()
 
-# Dimensiones de la pantalla
 w, h = 800, 400
 pantalla = pygame.display.set_mode((w, h))
-pygame.display.set_caption("Juego: Disparo de Bala, Salto, Nave y Menú")
+pygame.display.set_caption("Juego: Disparo Horizontal y Caída Vertical")
 
-# Colores
 BLANCO = (255, 255, 255)
 NEGRO = (0, 0, 0)
 
-# Variables del jugador, bala, nave, fondo, etc.
 jugador = None
-bala = None
+bala_h = None
+bala_v = None
 fondo = None
 nave = None
 menu = None
 
-# Variables de salto
 salto = False
-salto_altura = 15  # Velocidad inicial de salto
+salto_altura = 15
 gravedad = 1
 en_suelo = True
 
-# Variables de pausa y menú
 pausa = False
 fuente = pygame.font.SysFont('Arial', 24)
 menu_activo = True
-modo_auto = False  # Indica si el modo de juego es automático
-
-# Lista para guardar los datos de velocidad, distancia y salto (target)
+modo_auto = False
 datos_modelo = []
 
-# Cargar las imágenes
 jugador_frames = [
-    pygame.image.load('assets/sprites/mono_frame_1.png'),
-    pygame.image.load('assets/sprites/mono_frame_2.png'),
-    pygame.image.load('assets/sprites/mono_frame_3.png'),
-    pygame.image.load('assets/sprites/mono_frame_4.png')
+    pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/sprites/mono_frame_1.png'),
+    pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/sprites/mono_frame_2.png'),
+    pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/sprites/mono_frame_3.png'),
+    pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/sprites/mono_frame_4.png')
 ]
 
-bala_img = pygame.image.load('assets/sprites/purple_ball.png')
-fondo_img = pygame.image.load('assets/game/fondo2.png')
-nave_img = pygame.image.load('assets/game/ufo.png')
-menu_img = pygame.image.load('assets/game/menu.png')
-
-# Escalar la imagen de fondo para que coincida con el tamaño de la pantalla
+bala_img = pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/sprites/purple_ball.png')
+fondo_img = pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/game/fondo2.png')
+nave_img = pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/game/ufo.png')
 fondo_img = pygame.transform.scale(fondo_img, (w, h))
 
-# Crear el rectángulo del jugador y de la bala
 jugador = pygame.Rect(50, h - 100, 32, 48)
-bala = pygame.Rect(w - 50, h - 90, 16, 16)
+bala_h = pygame.Rect(w - 50, h - 90, 16, 16)
+bala_v = pygame.Rect(random.randint(0, w - 16), 0, 16, 16)
 nave = pygame.Rect(w - 100, h - 100, 64, 64)
-menu_rect = pygame.Rect(w // 2 - 135, h // 2 - 90, 270, 180)  # Tamaño del menú
+menu_rect = pygame.Rect(w // 2 - 135, h // 2 - 90, 270, 180)
 
-# Variables para la animación del jugador
 current_frame = 0
-frame_speed = 10  # Cuántos frames antes de cambiar a la siguiente imagen
+frame_speed = 10
 frame_count = 0
 
-# Variables para la bala
-velocidad_bala = -10  # Velocidad de la bala hacia la izquierda
-bala_disparada = False
+velocidad_bala_h = -10
+bala_h_disparada = False
+bala_v_disparada = False
+velocidad_bala_v = 5
 
-# Variables para el fondo en movimiento
 fondo_x1 = 0
 fondo_x2 = w
 
-# Función para disparar la bala
-def disparar_bala():
-    global bala_disparada, velocidad_bala
-    if not bala_disparada:
-        velocidad_bala = random.randint(-8, -3)  # Velocidad aleatoria negativa para la bala
-        bala_disparada = True
+modelo = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/modelo_arbol_decision.pkl")
 
-# Función para reiniciar la posición de la bala
-def reset_bala():
-    global bala, bala_disparada
-    bala.x = w - 50  # Reiniciar la posición de la bala
-    bala_disparada = False
+def disparar_bala_h():
+    global bala_h_disparada, velocidad_bala_h
+    if not bala_h_disparada:
+        velocidad_bala_h = random.randint(-8, -3)
+        bala_h_disparada = True
 
-# Función para manejar el salto
+def disparar_bala_v():
+    global bala_v_disparada, velocidad_bala_v
+    if not bala_v_disparada:
+        velocidad_bala_v = random.randint(1, 3)  # Velocidad positiva para caída
+        bala_v_disparada = True
+
+def reset_bala_h():
+    global bala_h, bala_h_disparada
+    bala_h.x = w - 50
+    bala_h_disparada = False
+
+def reset_bala_v():
+    global bala_v, bala_v_disparada
+    bala_v.y = 0  # Desde arriba
+    bala_v.x = random.randint(0, w - 16)  # Posición horizontal aleatoria
+    bala_v_disparada = False
+
+
+    
+
+def guardar_csv():
+    df = pd.DataFrame(datos_modelo, columns=[
+        "velocidad", "jugador_x", "bala_h_x", "bala_v_x", "salto", "accion_horizontal"
+    ])
+    df.to_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv", index=False)
+
 def manejar_salto():
     global jugador, salto, salto_altura, gravedad, en_suelo
-
     if salto:
-        jugador.y -= salto_altura  # Mover al jugador hacia arriba
-        salto_altura -= gravedad  # Aplicar gravedad (reduce la velocidad del salto)
-
-        # Si el jugador llega al suelo, detener el salto
+        jugador.y -= salto_altura
+        salto_altura -= gravedad
         if jugador.y >= h - 100:
             jugador.y = h - 100
             salto = False
-            salto_altura = 15  # Restablecer la velocidad de salto
+            salto_altura = 15
             en_suelo = True
 
-# Función para actualizar el juego
-def update():
-    global bala, velocidad_bala, current_frame, frame_count, fondo_x1, fondo_x2
-
-    # Mover el fondo
-    fondo_x1 -= 1
-    fondo_x2 -= 1
-
-    # Si el primer fondo sale de la pantalla, lo movemos detrás del segundo
-    if fondo_x1 <= -w:
-        fondo_x1 = w
-
-    # Si el segundo fondo sale de la pantalla, lo movemos detrás del primero
-    if fondo_x2 <= -w:
-        fondo_x2 = w
-
-    # Dibujar los fondos
-    pantalla.blit(fondo_img, (fondo_x1, 0))
-    pantalla.blit(fondo_img, (fondo_x2, 0))
-
-    # Animación del jugador
-    frame_count += 1
-    if frame_count >= frame_speed:
-        current_frame = (current_frame + 1) % len(jugador_frames)
-        frame_count = 0
-
-    # Dibujar el jugador con la animación
-    pantalla.blit(jugador_frames[current_frame], (jugador.x, jugador.y))
-
-    # Dibujar la nave
-    pantalla.blit(nave_img, (nave.x, nave.y))
-
-    # Mover y dibujar la bala
-    if bala_disparada:
-        bala.x += velocidad_bala
-
-    # Si la bala sale de la pantalla, reiniciar su posición
-    if bala.x < 0:
-        reset_bala()
-
-    pantalla.blit(bala_img, (bala.x, bala.y))
-
-    # Colisión entre la bala y el jugador
-    if jugador.colliderect(bala):
-        print("Colisión detectada!")
-        reiniciar_juego()  # Terminar el juego y mostrar el menú
-
-# Función para guardar datos del modelo en modo manual
 def guardar_datos():
-    global jugador, bala, velocidad_bala, salto
-    distancia = abs(jugador.x - bala.x)
-    salto_hecho = 1 if salto else 0  # 1 si saltó, 0 si no saltó
-    # Guardar velocidad de la bala, distancia al jugador y si saltó o no
-    datos_modelo.append((velocidad_bala, distancia, salto_hecho))
+    salto_hecho = 1 if salto else 0
 
-# Función para pausar el juego y guardar los datos
+    if pygame.key.get_pressed()[pygame.K_LEFT]:
+        accion_horizontal = -1
+    elif pygame.key.get_pressed()[pygame.K_RIGHT]:
+        accion_horizontal = 1
+    else:
+        accion_horizontal = 0
+
+    datos_modelo.append((
+        velocidad_bala_h,
+        jugador.x,
+        bala_h.x,
+        bala_v.x,
+        accion_horizontal,
+        salto_hecho
+    ))
+
 def pausa_juego():
     global pausa
     pausa = not pausa
     if pausa:
-        print("Juego pausado. Datos registrados hasta ahora:", datos_modelo)
+        print("Juego pausado. Datos:", datos_modelo)
     else:
-        print("Juego reanudado.")
+        print("Reanudado.")
 
-# Función para mostrar el menú y seleccionar el modo de juego
 def mostrar_menu():
     global menu_activo, modo_auto
     pantalla.fill(NEGRO)
@@ -183,29 +153,66 @@ def mostrar_menu():
                     modo_auto = False
                     menu_activo = False
                 elif evento.key == pygame.K_q:
-                    print("Juego terminado. Datos recopilados:", datos_modelo)
+                    print("Juego terminado. Datos:", datos_modelo)
                     pygame.quit()
+                    guardar_csv()
                     exit()
 
-# Función para reiniciar el juego tras la colisión
 def reiniciar_juego():
-    global menu_activo, jugador, bala, nave, bala_disparada, salto, en_suelo
-    menu_activo = True  # Activar de nuevo el menú
-    jugador.x, jugador.y = 50, h - 100  # Reiniciar posición del jugador
-    bala.x = w - 50  # Reiniciar posición de la bala
-    nave.x, nave.y = w - 100, h - 100  # Reiniciar posición de la nave
-    bala_disparada = False
+    global menu_activo, jugador, bala_h, bala_v, nave, bala_h_disparada, bala_v_disparada, salto, en_suelo
+    menu_activo = True
+    jugador.x, jugador.y = 50, h - 100
+    bala_h.x = w - 50
+    bala_v.x = random.randint(0, w - 16)
+    bala_v.y = 0
+    nave.x, nave.y = w - 100, h - 100
+    bala_h_disparada = False
+    bala_v_disparada = False
     salto = False
     en_suelo = True
-    # Mostrar los datos recopilados hasta el momento
-    print("Datos recopilados para el modelo: ", datos_modelo)
-    mostrar_menu()  # Mostrar el menú de nuevo para seleccionar modo
+    print("Datos recopilados:", datos_modelo)
+    mostrar_menu()
+
+def update():
+    global frame_count, current_frame, fondo_x1, fondo_x2, bala_v
+
+    fondo_x1 -= 1
+    fondo_x2 -= 1
+    if fondo_x1 <= -w: fondo_x1 = w
+    if fondo_x2 <= -w: fondo_x2 = w
+    pantalla.blit(fondo_img, (fondo_x1, 0))
+    pantalla.blit(fondo_img, (fondo_x2, 0))
+
+    frame_count += 1
+    if frame_count >= frame_speed:
+        current_frame = (current_frame + 1) % len(jugador_frames)
+        frame_count = 0
+    pantalla.blit(jugador_frames[current_frame], (jugador.x, jugador.y))
+
+    pantalla.blit(nave_img, (nave.x, nave.y))
+
+    if bala_h_disparada:
+        bala_h.x += velocidad_bala_h
+    if bala_h.x < 0:
+        reset_bala_h()
+    pantalla.blit(bala_img, (bala_h.x, bala_h.y))
+
+    if bala_v_disparada:
+        bala_v.y += velocidad_bala_v
+    if bala_v.y > h:
+        reset_bala_v()
+    pantalla.blit(bala_img, (bala_v.x, bala_v.y))
+
+    if jugador.colliderect(bala_h) or jugador.colliderect(bala_v):
+        print("Colisión detectada!")
+        guardar_csv()
+        reiniciar_juego()
 
 def main():
-    global salto, en_suelo, bala_disparada
+    global salto, en_suelo, bala_h_disparada, bala_v_disparada
 
     reloj = pygame.time.Clock()
-    mostrar_menu()  # Mostrar el menú al inicio
+    mostrar_menu()
     correr = True
 
     while correr:
@@ -213,32 +220,59 @@ def main():
             if evento.type == pygame.QUIT:
                 correr = False
             if evento.type == pygame.KEYDOWN:
-                if evento.key == pygame.K_SPACE and en_suelo and not pausa:  # Detectar la tecla espacio para saltar
+                if evento.key == pygame.K_SPACE and en_suelo and not pausa and not modo_auto:
                     salto = True
                     en_suelo = False
-                if evento.key == pygame.K_p:  # Presiona 'p' para pausar el juego
+                if evento.key == pygame.K_p:
                     pausa_juego()
-                if evento.key == pygame.K_q:  # Presiona 'q' para terminar el juego
-                    print("Juego terminado. Datos recopilados:", datos_modelo)
+                if evento.key == pygame.K_q:
+                    print("Juego terminado. Datos:", datos_modelo)
                     pygame.quit()
+                    guardar_csv()
                     exit()
 
         if not pausa:
-            # Modo manual: el jugador controla el salto
+            teclas = pygame.key.get_pressed()
             if not modo_auto:
-                if salto:
-                    manejar_salto()
-                # Guardar los datos si estamos en modo manual
+                if teclas[pygame.K_LEFT]:
+                    jugador.x -= 5
+                if teclas[pygame.K_RIGHT]:
+                    jugador.x += 5
+
+            if not bala_v_disparada:
+                disparar_bala_v()
+            if not bala_h_disparada:
+                disparar_bala_h()
+
+            if modo_auto:
+                entrada = [[
+                    velocidad_bala_h,
+                    jugador.x,
+                    bala_h.x,
+                    bala_v.x
+                ]]
+
+                accion_h, accion_salto = modelo.predict(entrada)[0]
+
+                if accion_h == -1:
+                    jugador.x -= 5
+                elif accion_h == 1:
+                    jugador.x += 5
+
+                if accion_salto == 1 and en_suelo:
+                    salto = True
+                    en_suelo = False
+
+            if salto:
+                manejar_salto()
+
+            if not modo_auto:
                 guardar_datos()
 
-            # Actualizar el juego
-            if not bala_disparada:
-                disparar_bala()
             update()
 
-        # Actualizar la pantalla
         pygame.display.flip()
-        reloj.tick(30)  # Limitar el juego a 30 FPS
+        reloj.tick(30)
 
     pygame.quit()
 
