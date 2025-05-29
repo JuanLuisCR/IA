@@ -5,7 +5,7 @@ pygame.init()
 
 # Configuración de la ventana
 ANCHO_VENTANA = 600
-FILAS = 14
+FILAS = 11
 VENTANA = pygame.display.set_mode((ANCHO_VENTANA, ANCHO_VENTANA))
 pygame.display.set_caption("Visualización de Nodos")
 

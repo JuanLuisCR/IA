@@ -7,7 +7,7 @@ import joblib
 df = pd.read_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv")
 
 # Entradas y salidas
-X = df[["velocidad", "jugador_x", "bala_h_x", "bala_v_x"]]
+X = df[["velocidad", "jugador_x", "bala_h_x", "bala_v_x", "tipo_bala"]]
 y = df[["salto", "accion_horizontal"]]
 
 # Entrenar

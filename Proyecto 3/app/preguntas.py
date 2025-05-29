@@ -10,17 +10,16 @@ def dividir_por_bloques(texto_completo):
     bloques = [b.strip() for b in bloques if b.strip()]
     return bloques
 
-# Limpiar pregunta para usar como clave de caché
 def limpiar_pregunta(p):
     return re.sub(r"\W+", " ", p.strip().lower())
 
-# Cargar embeddings y textos aborto
+# Cargar embeddings del aborto
 vectores_aborto = np.load("C:/Users/juanl/Desktop/Semestre 9/IA/Proyecto 3/embeddings/aborto.npy")
 with open("C:/Users/juanl/Desktop/Semestre 9/IA/Proyecto 3/data/aborto.txt", encoding="utf-8") as f:
     textos_aborto = dividir_por_bloques(f.read())
 index_aborto = faiss.read_index("C:/Users/juanl/Desktop/Semestre 9/IA/Proyecto 3/embeddings/aborto.faiss")
 
-# Cargar embeddings y textos eutanasia
+# Cargar embeddings de la eutanasia
 vectores_eutanasia = np.load("C:/Users/juanl/Desktop/Semestre 9/IA/Proyecto 3/embeddings/eutanasia.npy")
 with open("C:/Users/juanl/Desktop/Semestre 9/IA/Proyecto 3/data/eutanasia.txt", encoding="utf-8") as f:
     textos_eutanasia = dividir_por_bloques(f.read())
