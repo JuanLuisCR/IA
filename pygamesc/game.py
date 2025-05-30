@@ -4,11 +4,16 @@ import pandas as pd
 from joblib import dump, load
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
-import numpy as np
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
 from sklearn.utils import resample
+
+
 
 # Ignorar todos los warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -36,6 +41,10 @@ salto_altura = 15
 gravedad = 1
 en_suelo = True
 
+posicion_original = 0
+regreso_activo = False
+tiempo_mov_derecha = 0
+
 pausa = False
 fuente = pygame.font.SysFont('Arial', 24)
 menu_activo = True
@@ -54,7 +63,7 @@ fondo_img = pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/ass
 nave_img = pygame.image.load('C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/assets/game/ufo.png')
 fondo_img = pygame.transform.scale(fondo_img, (w, h))
 
-jugador = pygame.Rect(200, h - 100, 32, 48)
+jugador = pygame.Rect(50, h - 100, 32, 48)
 bala_h = pygame.Rect(w - 50, h - 90, 16, 16)
 bala_v = pygame.Rect(random.randint(0, w - 16), 0, 16, 16)
 nave = pygame.Rect(w - 100, h - 100, 64, 64)
@@ -79,8 +88,8 @@ def reiniciar_csv():
     global datos_modelo
     datos_modelo = []
     columnas = [
-        "velocidad_balax", "bala_h_x", "tipo_bala_h",
-        "velocidad_balay", "bala_v_y", "distancia_x",
+        "velocidad_balax", "bala_h_x",
+        "velocidad_balay", "bala_v_y",
         "accion_horizontal", "salto"
     ]
     df_vacio = pd.DataFrame(columns=columnas)
@@ -90,28 +99,28 @@ def reiniciar_csv():
 
 def manejar_movimiento_auto():
     global jugador, salto, salto_altura, en_suelo, modelo_actual
+    global posicion_original, regreso_activo, tiempo_mov_derecha, modo_auto
 
     if not modo_auto:
         return
 
-    # Decisión salto
+    # ---------- SALTO ----------
     if bala_h_disparada:
-        X_salto = pd.DataFrame([[velocidad_bala_h, bala_h.x - jugador.x, 0]], columns=["velocidad_balax", "bala_h_x", "tipo_bala_h"])
+        X_salto = pd.DataFrame([[velocidad_bala_h, bala_h.x - jugador.x]],
+                               columns=["velocidad_balax", "bala_h_x"])
 
         try:
             if modelo_actual == "arbol":
                 modelo_salto = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/decision_tree_h.pkl")
-                if not hasattr(modelo_salto, "predict"):
-                    raise ValueError("El modelo cargado no es válido.")
                 accion_salto = modelo_salto.predict(X_salto)[0]
             elif modelo_actual == "knn":
                 modelo_salto = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/k_neighbors_h.pkl")
-                if not hasattr(modelo_salto, "predict"):
-                    raise ValueError("El modelo cargado no es válido.")
                 accion_salto = modelo_salto.predict(X_salto)[0]
             elif modelo_actual == "red":
                 modelo_salto = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/red_neuronal_salto.pkl")
-                accion_salto = modelo_salto.predict(X_salto)[0]
+                scaler_salto = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/scaler_salto.pkl")
+                X_salto_scaled = scaler_salto.transform(X_salto)
+                accion_salto = modelo_salto.predict(X_salto_scaled)[0]
             else:
                 accion_salto = 0
         except Exception as e:
@@ -122,12 +131,10 @@ def manejar_movimiento_auto():
             salto = True
             en_suelo = False
 
-    # Decisión movimiento horizontal
-        # Decisión movimiento horizontal
-    if bala_v_disparada:
-        distancia_x = bala_v.x - jugador.x  # Nueva distancia horizontal relevante
-        X_mov = pd.DataFrame([[velocidad_bala_v, bala_v.y, distancia_x]],
-            columns=["velocidad_balay", "bala_v_y", "distancia_x"])
+    # ---------- MOVIMIENTO HORIZONTAL ----------
+    if bala_v_disparada and not regreso_activo:
+        X_mov = pd.DataFrame([[velocidad_bala_h, bala_h.x - jugador.x, velocidad_bala_v, bala_v.y]],
+                            columns=["velocidad_balax", "bala_h_x", "velocidad_balay", "bala_v_y"])
 
         try:
             if modelo_actual == "arbol":
@@ -138,127 +145,275 @@ def manejar_movimiento_auto():
                 accion_mov = modelo_mov.predict(X_mov)[0]
             elif modelo_actual == "red":
                 modelo_mov = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/red_neuronal_movimiento.pkl")
-                accion_mov = modelo_mov.predict(X_mov)[0]
+                scaler_mov = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/scaler_movimiento.pkl")
+                X_mov_scaled = scaler_mov.transform(X_mov)
+                accion_mov = modelo_mov.predict(X_mov_scaled)[0]
+                print(f"📡 Movimiento predicho: {accion_mov} | Entrada: {X_mov.values.tolist()}")
             else:
                 accion_mov = 0
         except Exception as e:
             print("❌ Error al predecir movimiento:", e)
             accion_mov = 0
 
-        if accion_mov == -1:
-            jugador.x -= 5
-        elif accion_mov == 1:
-            jugador.x += 5
+        # Si se mueve a la derecha, guardar posición original y activar regreso
+        if accion_mov == 1:
+            posicion_original = jugador.x
+            jugador.x += 25
+            jugador.x = max(0, min(w - jugador.width, jugador.x))
+            regreso_activo = True
+            tiempo_mov_derecha = pygame.time.get_ticks()
 
-        jugador.x = max(0, min(w - jugador.width, jugador.x))
+        elif accion_mov == -1:
+            jugador.x -= 5
+            jugador.x = max(0, min(w - jugador.width, jugador.x))
+
+    # ---------- REGRESO AUTOMÁTICO ----------
+    if regreso_activo:
+        tiempo_actual = pygame.time.get_ticks()
+        if tiempo_actual - tiempo_mov_derecha >= 1000:  # después de 1 segundo
+            jugador.x = posicion_original
+            jugador.x = max(0, min(w - jugador.width, jugador.x))
+            regreso_activo = False
 
 # ... ENTRENAMIENTO - K NEIGHBORS ...
 def entrenar_k_neighbors():
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import classification_report
+    from sklearn.utils import resample
+    from joblib import dump
+    import pandas as pd
+
+    ruta_dataset = "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv"
+    ruta_modelos = "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/"
+
     try:
-        df = pd.read_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv")
-        if len(df) < 10:
-            print("⚠️ No hay suficientes datos para entrenar K-Neighbors.")
+        df = pd.read_csv(ruta_dataset)
+
+        if df.empty:
+            print("⚠️ Dataset vacío. No se puede entrenar.")
             return
 
-        # Modelo de salto
-        X_salto = df[["velocidad_balax", "bala_h_x", "tipo_bala_h"]]
-        y_salto = df["salto"]
+        # -----------------------------------
+        # 🧠 MODELO PARA SALTO
+        # -----------------------------------
+        if "salto" in df.columns:
+            X_salto = df[["velocidad_balax", "bala_h_x"]]
+            y_salto = df["salto"]
 
-        modelo_salto = KNeighborsClassifier(n_neighbors=3)
-        modelo_salto.fit(X_salto, y_salto)
-        dump(modelo_salto, "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/k_neighbors_h.pkl")
-        print("🤝 K-Neighbors para salto entrenado y guardado.")
+            if y_salto.nunique() < 2:
+                print("⚠️ No hay suficientes clases para entrenar el modelo de salto.")
+            else:
+                X_train_s, X_test_s, y_train_s, y_test_s = train_test_split(
+                    X_salto, y_salto, test_size=0.2, stratify=y_salto, random_state=42
+                )
 
-        # Modelo de movimiento
-        X_mov = df[["velocidad_balay", "bala_v_y", "distancia_x"]]
-        y_mov = df["accion_horizontal"]
+                modelo_salto = KNeighborsClassifier(n_neighbors=6)
+                modelo_salto.fit(X_train_s, y_train_s)
 
-        modelo_mov = KNeighborsClassifier(n_neighbors=3)
-        modelo_mov.fit(X_mov, y_mov)
-        dump(modelo_mov, "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/k_neighbors_v.pkl")
-        print("🤝 K-Neighbors para movimiento entrenado y guardado.")
-        
+                print("\n🔍 Evaluación del modelo KNN (salto):")
+                print(classification_report(y_test_s, modelo_salto.predict(X_test_s)))
+
+                dump(modelo_salto, ruta_modelos + "k_neighbors_h.pkl")
+        else:
+            print("⚠️ Columna 'salto' no encontrada en el dataset.")
+
+        # -----------------------------------
+        # 🧠 MODELO PARA MOVIMIENTO HORIZONTAL (balanceado)
+        # -----------------------------------
+        if "accion_horizontal" in df.columns:
+            df_mov = df[df["accion_horizontal"].isin([0, 1])]
+            df_0 = df_mov[df_mov["accion_horizontal"] == 0]
+            df_1 = df_mov[df_mov["accion_horizontal"] == 1]
+
+            if len(df_1) == 0 or len(df_0) == 0:
+                print("⚠️ No hay suficientes muestras para balancear movimiento horizontal.")
+            else:
+                df_1_up = resample(df_1, replace=True, n_samples=len(df_0), random_state=42)
+                df_bal = pd.concat([df_0, df_1_up])
+
+                X_mov = df_bal[["velocidad_balax", "bala_h_x", "velocidad_balay", "bala_v_y"]]
+                y_mov = df_bal["accion_horizontal"]
+
+                X_train_m, X_test_m, y_train_m, y_test_m = train_test_split(
+                    X_mov, y_mov, test_size=0.2, stratify=y_mov, random_state=42
+                )
+
+                modelo_mov = KNeighborsClassifier(n_neighbors=3)
+                modelo_mov.fit(X_train_m, y_train_m)
+
+                print("\n🔍 Evaluación del modelo KNN (movimiento horizontal):")
+                print(classification_report(y_test_m, modelo_mov.predict(X_test_m)))
+
+                dump(modelo_mov, ruta_modelos + "k_neighbors_v.pkl")
+        else:
+            print("⚠️ Columna 'accion_horizontal' no encontrada en el dataset.")
+
+        print("\n✅ Modelos KNN entrenados y guardados correctamente.")
+
     except Exception as e:
-        print("❌ Error al entrenar K-Neighbors:", e)
+        print(f"❌ Error durante el entrenamiento de KNN: {e}")
 
 # ... ENTRENAMIENTO - DECISION TREE ...
 def entrenar_arboles():
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import classification_report
+    from sklearn.utils import resample
+    from joblib import dump
+    import pandas as pd
+
+    ruta_dataset = "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv"
+    ruta_modelos = "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/"
+
     try:
-        df = pd.read_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv")
-        if len(df) < 10:
-            print("⚠️ No hay suficientes datos para entrenar árboles.")
+        df = pd.read_csv(ruta_dataset)
+
+        if df.empty:
+            print("⚠️ Dataset vacío. No se puede entrenar.")
             return
 
-        # Modelo de salto con bala horizontal
-        X_salto = df[["velocidad_balax", "bala_h_x", "tipo_bala_h"]]
-        y_salto = df["salto"]
+        # -----------------------------------
+        # 🌳 MODELO PARA SALTO
+        # -----------------------------------
+        if "salto" in df.columns:
+            X_salto = df[["velocidad_balax", "bala_h_x"]]
+            y_salto = df["salto"]
 
-        modelo_salto = DecisionTreeClassifier()
-        modelo_salto.fit(X_salto, y_salto)
-        dump(modelo_salto, "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/decision_tree_h.pkl")
-        print("🌳 Árbol de decisión para salto entrenado y guardado.")
+            if y_salto.nunique() < 2:
+                print("⚠️ No hay suficientes clases para entrenar el modelo de salto.")
+            else:
+                X_train_s, X_test_s, y_train_s, y_test_s = train_test_split(
+                    X_salto, y_salto, test_size=0.2, stratify=y_salto, random_state=42
+                )
 
-        # Modelo de movimiento con bala vertical
-        X_mov = df[["velocidad_balay", "bala_v_y", "distancia_x"]]
-        y_mov = df["accion_horizontal"]
+                modelo_salto = DecisionTreeClassifier(max_depth=5, random_state=42)
+                modelo_salto.fit(X_train_s, y_train_s)
 
-        modelo_mov = DecisionTreeClassifier()
-        modelo_mov.fit(X_mov, y_mov)
-        dump(modelo_mov, "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/decision_tree_v.pkl")
-        print("🌳 Árbol de decisión para movimiento entrenado y guardado.")
+                print("\n🔍 Evaluación del árbol de decisión (salto):")
+                print(classification_report(y_test_s, modelo_salto.predict(X_test_s)))
+
+                dump(modelo_salto, ruta_modelos + "decision_tree_h.pkl")
+        else:
+            print("⚠️ Columna 'salto' no encontrada en el dataset.")
+
+        # -----------------------------------
+        # 🌳 MODELO PARA MOVIMIENTO HORIZONTAL (balanceado)
+        # -----------------------------------
+        if "accion_horizontal" in df.columns:
+            df_mov = df[df["accion_horizontal"].isin([0, 1])]
+            df_0 = df_mov[df_mov["accion_horizontal"] == 0]
+            df_1 = df_mov[df_mov["accion_horizontal"] == 1]
+
+            if len(df_1) == 0 or len(df_0) == 0:
+                print("⚠️ No hay suficientes muestras para balancear movimiento horizontal.")
+            else:
+                df_1_up = resample(df_1, replace=True, n_samples=len(df_0), random_state=42)
+                df_bal = pd.concat([df_0, df_1_up])
+
+                X_mov = df_bal[["velocidad_balax", "bala_h_x", "velocidad_balay", "bala_v_y"]]
+                y_mov = df_bal["accion_horizontal"]
+
+                X_train_m, X_test_m, y_train_m, y_test_m = train_test_split(
+                    X_mov, y_mov, test_size=0.2, stratify=y_mov, random_state=42
+                )
+
+                modelo_mov = DecisionTreeClassifier(max_depth=5, random_state=42)
+                modelo_mov.fit(X_train_m, y_train_m)
+
+                print("\n🔍 Evaluación del árbol de decisión (movimiento horizontal):")
+                print(classification_report(y_test_m, modelo_mov.predict(X_test_m)))
+
+                dump(modelo_mov, ruta_modelos + "decision_tree_v.pkl")
+        else:
+            print("⚠️ Columna 'accion_horizontal' no encontrada en el dataset.")
+
+        print("\n✅ Modelos de árbol entrenados y guardados correctamente.")
 
     except Exception as e:
-        print("❌ Error al entrenar árboles:", e)
+        print(f"❌ Error durante el entrenamiento de árboles de decisión: {e}")
 
 # ... ENTRENAMIENTO - RED NEURONAL CON FUNCIÓN DE ACTIVACIÓN TANH ...
-
 def entrenar_red_neuronal():
+    ruta_dataset = "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv"
+    ruta_modelos = "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/"
+
     try:
-        df = pd.read_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv")
-        if len(df) < 10:
-            print("⚠️ No hay suficientes datos para entrenar.")
+        df = pd.read_csv(ruta_dataset)
+
+        if df.empty:
+            print("⚠️ Dataset vacío. No se puede entrenar.")
             return
 
-        # Red para salto
-        X_salto = df[["velocidad_balax", "bala_h_x", "tipo_bala_h"]]
-        y_salto = df["salto"]
-        red_salto = MLPClassifier(hidden_layer_sizes=(10,), activation='tanh', max_iter=1000)
-        red_salto.fit(X_salto, y_salto)
-        dump(red_salto, "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/red_neuronal_salto.pkl")
-        print("🤖 Red neuronal salto entrenada.")
+        # -----------------------------------
+        # 🧠 MODELO PARA SALTO
+        # -----------------------------------
+        if "salto" in df.columns:
+            X_salto = df[["velocidad_balax", "bala_h_x"]]
+            y_salto = df["salto"]
 
-        try:
-            df = pd.read_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv")
+            if y_salto.nunique() < 2:
+                print("⚠️ No hay suficientes clases para entrenar el modelo de salto.")
+            else:
+                X_train_s, X_test_s, y_train_s, y_test_s = train_test_split(
+                    X_salto, y_salto, test_size=0.2, stratify=y_salto, random_state=42
+                )
 
-            df_0 = df[df["accion_horizontal"] == 0]
-            df_1 = df[df["accion_horizontal"] == 1]
-            df_m1 = df[df["accion_horizontal"] == -1]
+                scaler_salto = StandardScaler()
+                X_train_s_scaled = scaler_salto.fit_transform(X_train_s)
+                X_test_s_scaled = scaler_salto.transform(X_test_s)
 
-            # Submuestreo de clase mayoritaria
-            df_0_down = resample(df_0, replace=False, n_samples=800, random_state=42)
-            # Sobremuestreo de clases minoritarias
-            df_1_up = resample(df_1, replace=False, random_state=42)
-            df_m1_up = resample(df_m1, replace=False, random_state=42)
+                modelo_salto = MLPClassifier(hidden_layer_sizes=(8, 4), activation='relu', max_iter=500, random_state=42)
+                modelo_salto.fit(X_train_s_scaled, y_train_s)
 
-            # Dataset balanceado
-            df_bal = pd.concat([df_0_down, df_1_up, df_m1_up])
+                print("\n🔍 Evaluación del modelo de salto:")
+                print(classification_report(y_test_s, modelo_salto.predict(X_test_s_scaled)))
 
-            X_mov = df_bal[["velocidad_balay", "bala_v_y", "distancia_x"]]
-            y_mov = df_bal["accion_horizontal"]
+                dump(modelo_salto, ruta_modelos + "red_neuronal_salto.pkl")
+                dump(scaler_salto, ruta_modelos + "scaler_salto.pkl")
+        else:
+            print("⚠️ Columna 'salto' no encontrada en el dataset.")
 
-            red_mov = MLPClassifier(hidden_layer_sizes=(32, 16), activation='tanh', max_iter=1500, solver='adam', random_state=42)
-            red_mov.fit(X_mov, y_mov)
-            dump(red_mov, "C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/red_neuronal_movimiento.pkl")
-            print("✅ Red neuronal (balanceada) para movimiento horizontal entrenada correctamente.")
+        # -----------------------------------
+        # 🧠 MODELO PARA MOVIMIENTO HORIZONTAL (balanceado)
+        # -----------------------------------
+        if "accion_horizontal" in df.columns:
+            df_mov = df[df["accion_horizontal"].isin([0, 1])]
+            df_0 = df_mov[df_mov["accion_horizontal"] == 0]
+            df_1 = df_mov[df_mov["accion_horizontal"] == 1]
 
-            print("Distribución de clases (accion_horizontal):")
-            print(y_mov.value_counts())
-        except Exception as e:
-            print("❌ Error en entrenamiento balanceado de movimiento:", e)
-        
+            if len(df_1) == 0 or len(df_0) == 0:
+                print("⚠️ No hay suficientes muestras para balancear movimiento horizontal.")
+            else:
+                df_1_up = resample(df_1, replace=True, n_samples=len(df_0), random_state=42)
+                df_bal = pd.concat([df_0, df_1_up])
+
+                X_mov = df_bal[["velocidad_balax", "bala_h_x", "velocidad_balay", "bala_v_y"]]
+                y_mov = df_bal["accion_horizontal"]
+
+                X_train_m, X_test_m, y_train_m, y_test_m = train_test_split(
+                    X_mov, y_mov, test_size=0.2, stratify=y_mov, random_state=42
+                )
+
+                scaler_mov = StandardScaler()
+                X_train_m_scaled = scaler_mov.fit_transform(X_train_m)
+                X_test_m_scaled = scaler_mov.transform(X_test_m)
+
+                modelo_mov = MLPClassifier(hidden_layer_sizes=(8, 4), activation='relu', max_iter=500, random_state=42)
+                modelo_mov.fit(X_train_m_scaled, y_train_m)
+
+                print("\n🔍 Evaluación del modelo de movimiento horizontal:")
+                print(classification_report(y_test_m, modelo_mov.predict(X_test_m_scaled)))
+
+                dump(modelo_mov, ruta_modelos + "red_neuronal_movimiento.pkl")
+                dump(scaler_mov, ruta_modelos + "scaler_movimiento.pkl")
+        else:
+            print("⚠️ Columna 'accion_horizontal' no encontrada en el dataset.")
+
+        print("\n✅ Proceso de entrenamiento finalizado.")
+
     except Exception as e:
-        print("❌ Error al entrenar redes neuronales:", e)
-
+        print(f"❌ Error durante el entrenamiento: {e}")
 
 
 def disparar_bala_h():
@@ -266,12 +421,12 @@ def disparar_bala_h():
     if not bala_h_disparada:
         velocidad_bala_h = random.randint(-8, -3)
         bala_h_disparada = True
-        guardar_datos(tipo_bala_h=0)    
 
 def disparar_bala_v():
     global bala_v_disparada, velocidad_bala_v
     if not bala_v_disparada:
-        velocidad_bala_v = random.randint(3, 5)
+        velocidad_bala_v = 5 # random.randint(4, 5)
+        bala_v.x = 50
         bala_v_disparada = True
 
 def reset_bala_h():
@@ -282,12 +437,12 @@ def reset_bala_h():
 def reset_bala_v():
     global bala_v, bala_v_disparada
     bala_v.y = 0
-    bala_v.x = random.randint(0, w - 16)
+    bala_v.x = 50
     bala_v_disparada = False
 
 def guardar_csv():
     df = pd.DataFrame(datos_modelo, columns=[
-        "velocidad_balax", "bala_h_x", "tipo_bala_h", "velocidad_balay", "bala_v_y", "distancia_x", "accion_horizontal", "salto"
+        "velocidad_balax", "bala_h_x", "velocidad_balay", "bala_v_y", "accion_horizontal", "salto"
     ])
     df.to_csv("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/datos_entrenamiento.csv", index=False)
 
@@ -302,7 +457,7 @@ def manejar_salto():
             salto_altura = 15
             en_suelo = True
 
-def guardar_datos(tipo_bala_h=0):
+def guardar_datos():
     global modo_auto
     if modo_auto:
         return  # No guardar datos si estamos en modo automático
@@ -310,8 +465,8 @@ def guardar_datos(tipo_bala_h=0):
     teclas = pygame.key.get_pressed()
     accion_horizontal = -1 if teclas[pygame.K_LEFT] else 1 if teclas[pygame.K_RIGHT] else 0
     fila = (
-        velocidad_bala_h, bala_h.x - jugador.x, tipo_bala_h,
-        velocidad_bala_v, bala_v.y, bala_v.x - jugador.x,
+        velocidad_bala_h, bala_h.x - jugador.x,
+        velocidad_bala_v, bala_v.y,
         accion_horizontal, salto_hecho
     )
     print("💾 Fila guardada:", fila)
@@ -418,7 +573,7 @@ def mostrar_menu():
 def reiniciar_juego():
     global menu_activo, jugador, bala_h, bala_v, nave, bala_h_disparada, bala_v_disparada, salto, en_suelo
     menu_activo = True
-    jugador.x, jugador.y = 250, h - 100
+    jugador.x, jugador.y = 50, h - 100
     reset_bala_h()
     reset_bala_v()
     nave.x, nave.y = w - 100, h - 100
@@ -461,7 +616,18 @@ def update():
         reiniciar_juego()
 
 def main():
-    global salto, en_suelo, bala_h_disparada, bala_v_disparada, modelo_salto, modelo_mov
+    global salto, en_suelo, bala_h_disparada, bala_v_disparada
+    global modelo_salto, modelo_mov
+    global mov_derecha_activado, tiempo_mov_derecha, posicion_anterior
+    global posicion_original, regreso_activo, tiempo_mov_derecha
+
+    mov_derecha_activado = False
+    tiempo_mov_derecha = 0
+    posicion_anterior = 0
+    posicion_original = 0
+    regreso_activo = False
+    tiempo_mov_derecha = 0
+
     try:
         modelo_salto = load("C:/Users/juanl/Desktop/Semestre 9/IA/pygamesc/model/k_neighbors_h.pkl")
         print("✅ Modelo de salto cargado.")
@@ -492,6 +658,20 @@ def main():
                     guardar_csv()
                     pygame.quit()
                     exit()
+                if evento.key == pygame.K_RIGHT and not modo_auto and not mov_derecha_activado:
+                    posicion_anterior = jugador.x
+                    jugador.x += 25
+                    jugador.x = max(0, min(w - jugador.width, jugador.x))
+                    mov_derecha_activado = True
+                    tiempo_mov_derecha = pygame.time.get_ticks()
+
+        # Regreso a la posición anterior tras 1s
+        if mov_derecha_activado:
+            tiempo_actual = pygame.time.get_ticks()
+            if tiempo_actual - tiempo_mov_derecha >= 1000:
+                jugador.x = posicion_anterior
+                jugador.x = max(0, min(w - jugador.width, jugador.x))
+                mov_derecha_activado = False
 
         if not pausa:
             teclas = pygame.key.get_pressed()
@@ -504,8 +684,6 @@ def main():
             if not modo_auto:
                 if teclas[pygame.K_LEFT]:
                     jugador.x -= 5
-                if teclas[pygame.K_RIGHT]:
-                    jugador.x += 5
 
             if modo_auto:
                 manejar_movimiento_auto()
